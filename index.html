@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LOOK360</title>
+    <script src="https://cdn.jsdelivr.net/npm/pannellum@2.5.6/build/pannellum.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/pannellum@2.5.6/build/pannellum.css"/>
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        #brightnessSlider {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            z-index: 1000;
+            -webkit-appearance: none;
+            appearance: none;
+            background: transparent;
+        }
+        #brightnessSlider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            height: 16px;
+            width: 16px;
+            border-radius: 50%;
+            background: rgb(186, 186, 186);
+            cursor: pointer;
+            margin-top: -6px; /* Offset to center the thumb on the track */
+        }
+
+        #brightnessSlider::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 4px;
+            background: rgba(0, 0, 0, 0.6);
+            border-radius: 2px;
+        }
+
+        #brightnessSlider::-moz-range-thumb {
+            height: 16px;
+            width: 16px;
+            border-radius: 50%;
+            background: white;
+            cursor: pointer;
+            border: none;
+        }
+
+        #brightnessSlider::-moz-range-track {
+            width: 100%;
+            height: 4px;
+            background: rgba(0, 0, 0, 0.6);
+            border-radius: 2px;
+        }
+
+        #footer {
+            position: absolute;
+            bottom: 10px;
+            left: 50px;
+            font-size: 12px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <div class="left-pane">
+            <div class="header-section">
+                <h1>LOOK360</h1>
+                <div class="powered-by-text">POWERED BY CURSORAI CREATED BY ARIELC</div>
+            </div>
+            <div class="image-list" id="imageList"></div>
+            <label for="fileInput" class="upload-label">
+                <img src="assets/upload-icon.png" alt="Upload" class="upload-icon">
+                <img src="assets/walking.gif" alt="Walking" class="walking-gif">
+            </label>
+            <input type="file" accept="image/*" multiple id="fileInput" />
+        </div>
+        <div class="right-pane">
+            <div id="panorama"></div>
+            <button id="zoomOutButton">Zoom Out</button>
+            <input type="range" id="brightnessSlider" min="0.2" max="3" step="0.1" value="1">
+        </div>
+    </div>
+
+    <div id="footer">
+        ©2024 LOOK360  a.casia@hotmail.com
+    </div>
+
+    <script>
+        const state = {
+            viewer: null,
+            currentYaw: 0,
+            currentPitch: 0,
+            currentZoom: 90,
+            imageHistory: []
+        };
+
+        document.addEventListener('keydown', (e) => {
+            if (!state.viewer) return;
+            
+            switch(e.key) {
+                case 'ArrowLeft': state.viewer.setYaw(state.viewer.getYaw() - 10); break;
+                case 'ArrowRight': state.viewer.setYaw(state.viewer.getYaw() + 10); break;
+                case 'ArrowUp': state.viewer.setPitch(state.viewer.getPitch() + 10); break;
+                case 'ArrowDown': state.viewer.setPitch(state.viewer.getPitch() - 10); break;
+                case '+': state.viewer.setHfov(state.viewer.getHfov() - 10); break;
+                case '-': state.viewer.setHfov(state.viewer.getHfov() + 10); break;
+            }
+        });
+
+        document.getElementById('fileInput').addEventListener('change', handleFileUpload);
+
+        function handleFileUpload(event) {
+            const files = event.target.files || event.dataTransfer.files;
+            const imageList = document.getElementById('imageList');
+            
+            Array.from(files).forEach(file => {
+                if (!file.type.startsWith('image/')) {
+                    alert('Please upload only image files.');
+                    return;
+                }
+
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const div = document.createElement('div');
+                    div.className = 'image-item';
+                    
+                    div.innerHTML = `
+                        <div class="thumbnail-container">
+                            <img src="${e.target.result}" alt="${file.name}" class="thumbnail"/>
+                        </div>
+                        <div class="image-details">
+                            <div class="image-name">${file.name}</div>
+                            <div class="image-info">
+                                <span>Added: ${new Date().toLocaleString()}</span>
+                                <span>Size: ${(file.size / (1024 * 1024)).toFixed(2)}MB</span>
+                            </div>
+                        </div>
+                        <button class="delete-button" onclick="deleteImage(this)">×</button>
+                    `;
+
+                    const fullResUrl = URL.createObjectURL(file);
+                    div.dataset.fullResUrl = fullResUrl;
+                    
+                    div.onclick = (e) => {
+                        if (e.target.className !== 'delete-button') {
+                            loadPanorama(fullResUrl);
+                        }
+                    };
+                    
+                    imageList.appendChild(div);
+                };
+                
+                reader.readAsDataURL(file);
+
+                reader.onerror = function(error) {
+                    console.error('Error loading image:', error);
+                    alert('Failed to load image. Please try again.');
+                };
+            });
+
+            if (event.target.value) {
+                event.target.value = '';
+            }
+        }
+
+        function deleteImage(button) {
+            const imageItem = button.parentElement;
+            if (imageItem.dataset.fullResUrl) {
+                URL.revokeObjectURL(imageItem.dataset.fullResUrl);
+            }
+            imageItem.remove();
+        }
+
+        function loadPanorama(url) {
+            if (state.viewer) {
+                state.currentYaw = state.viewer.getYaw();
+                state.currentPitch = state.viewer.getPitch();
+                state.currentZoom = state.viewer.getHfov();
+                state.viewer.destroy();
+            }
+            
+            state.viewer = pannellum.viewer('panorama', {
+                type: 'equirectangular',
+                panorama: url,
+                autoLoad: true,
+                yaw: 0,
+                pitch: 0,
+                hfov: state.currentZoom,
+                minHfov: 25,
+                maxHfov: 125,
+                autoRotate: false,
+                compass: true
+            });
+
+        }
+        document.getElementById('panorama').addEventListener('mousemove', function() {
+    if (state.viewer) {
+        state.viewer.stopAutoRotate();
+ 
+    }
+});
+
+document.getElementById('panorama').addEventListener('click', function() {
+    if (state.viewer) {
+        state.viewer.stopAutoRotate();
+        
+    }
+});
+    
+
+        // Brightness Adjustment
+        const brightnessSlider = document.getElementById('brightnessSlider');
+        brightnessSlider.addEventListener('input', function() {
+            const brightnessValue = brightnessSlider.value;
+            document.getElementById('panorama').style.filter = `brightness(${brightnessValue})`;
+        });
+    </script>
+</body>
+</html>
